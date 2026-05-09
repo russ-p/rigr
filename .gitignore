@@ -1,0 +1,57 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+
+# Go test artifacts
+*.test
+*.out
+coverprofile
+coverage.*
+
+# Go profiling / tracing
+cpu.pprof
+mem.pprof
+*.pprof
+trace.out
+
+# Build output directories (common conventions)
+bin/
+dist/
+out/
+build/
+
+# Local binaries / project-specific build outputs
+/rigr
+/cmd/rigr/rigr
+
+# Module/work files that are typically local-only
+go.work
+go.work.sum
+
+# Dependency directories (usually not committed with Go modules)
+vendor/
+
+# Logs
+*.log
+
+# Local environment/config/secrets
+.env
+.env.*
+*.local
+
+# Docker / Compose local overrides
+docker-compose.override.yml
+docker-compose.*.yml
+
+# IDE/editor
+.idea/
+.vscode/
+
+# OS cruft
+.DS_Store
+Thumbs.db
