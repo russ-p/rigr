@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -114,9 +115,20 @@ func (s *Store) Get(id string) (AppState, bool) {
 }
 
 func main() {
+	logLevelFlag := flag.String("log-level", "", "log level: debug|info|warn|error (overrides LOG_LEVEL)")
+	flag.Parse()
+
+	level := getenv("LOG_LEVEL", "info")
+	if strings.TrimSpace(*logLevelFlag) != "" {
+		level = *logLevelFlag
+	}
+	logger := newLogger(level)
+	slog.SetDefault(logger)
+
 	cfg, err := readConfig()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		slog.Error("config error", "err", err)
+		os.Exit(1)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -124,7 +136,8 @@ func main() {
 
 	docker, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Fatalf("docker client: %v", err)
+		slog.Error("docker client error", "err", err)
+		os.Exit(1)
 	}
 
 	store := NewStore()
@@ -151,6 +164,7 @@ func main() {
 		HTTPClient: httpClient,
 		FeedParser: gofeed.NewParser(),
 		Store:      store,
+		Logger:     logger,
 	}
 
 	go poller.Run(ctx)
@@ -163,14 +177,16 @@ func main() {
 
 	go func() {
 		<-ctx.Done()
+		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("listening on %s", cfg.HTTPBind)
+	slog.Info("listening", "bind", cfg.HTTPBind)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatalf("http: %v", err)
+		slog.Error("http server error", "err", err)
+		os.Exit(1)
 	}
 }
 
@@ -180,6 +196,7 @@ type Poller struct {
 	HTTPClient *http.Client
 	FeedParser *gofeed.Parser
 	Store      *Store
+	Logger     *slog.Logger
 }
 
 func (p *Poller) Run(ctx context.Context) {
@@ -200,15 +217,27 @@ func (p *Poller) Run(ctx context.Context) {
 func (p *Poller) pollOnce(ctx context.Context) {
 	containers, err := p.Docker.ContainerList(ctx, container.ListOptions{})
 	if err != nil {
-		log.Printf("docker: container list: %v", err)
+		p.Logger.Error("docker container list error", "err", err)
 		return
 	}
+
+	type pollSummary struct {
+		tracked      int
+		fetchOK      int
+		fetchFailed  int
+		needsUpdate  int
+		noMatch      int
+		noVersion    int
+		matchedNoUpd int
+	}
+	var sum pollSummary
 
 	for _, c := range containers {
 		feedURL := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelReleaseFeed])
 		if feedURL == "" {
 			continue
 		}
+		sum.tracked++
 
 		appName := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelName])
 		if appName == "" {
@@ -218,6 +247,14 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		imageRef := c.Image
 		_, tag := splitImageTag(imageRef)
 		current := tag
+
+		p.Logger.Debug("checking app",
+			"app", appName,
+			"container_id", c.ID,
+			"image", imageRef,
+			"current_version", current,
+			"release_feed", feedURL,
+		)
 
 		state := AppState{
 			ContainerID:    c.ID,
@@ -244,8 +281,52 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		state.LastFeedFetchOK = fetchOK
 		state.LastError = lastErr
 
+		if fetchOK {
+			sum.fetchOK++
+		} else {
+			sum.fetchFailed++
+		}
+		if len(updates) > 0 {
+			sum.needsUpdate++
+		} else {
+			switch state.MatchStatus {
+			case "no_match":
+				sum.noMatch++
+			case "no_version":
+				sum.noVersion++
+			case "matched":
+				sum.matchedNoUpd++
+			}
+		}
+
+		if fetchOK {
+			p.Logger.Debug("checked app",
+				"app", appName,
+				"container_id", c.ID,
+				"match_status", state.MatchStatus,
+				"updates_available", len(updates),
+			)
+		} else {
+			p.Logger.Debug("checked app (feed error)",
+				"app", appName,
+				"container_id", c.ID,
+				"match_status", state.MatchStatus,
+				"err", lastErr,
+			)
+		}
+
 		p.Store.Set(state)
 	}
+
+	p.Logger.Info("poll summary",
+		"tracked", sum.tracked,
+		"success", sum.fetchOK,
+		"failed", sum.fetchFailed,
+		"needs_update", sum.needsUpdate,
+		"no_match", sum.noMatch,
+		"no_version", sum.noVersion,
+		"matched_no_updates", sum.matchedNoUpd,
+	)
 }
 
 func (p *Poller) checkFeed(ctx context.Context, url string, currentVersion string) ([]AppUpdate, *AppUpdate, string, bool, string) {
@@ -540,4 +621,25 @@ func getenvDuration(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func newLogger(level string) *slog.Logger {
+	var lvl slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "info", "":
+		lvl = slog.LevelInfo
+	case "warn", "warning":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	h := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+	})
+	return slog.New(h)
 }

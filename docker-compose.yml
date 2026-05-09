@@ -11,6 +11,7 @@ services:
       - HTTP_TIMEOUT=10s
       - LABEL_PREFIX=rigr.
       - MAX_FEED_ENTRIES=50
+      - LOG_LEVEL=info
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 

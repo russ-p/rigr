@@ -34,6 +34,11 @@ The label prefix is configurable via `LABEL_PREFIX` (default: `rigr.`).
 - `HTTP_TIMEOUT` (default `10s`)
 - `USER_AGENT` (default `rigr/0.1 (+https://github.com/)`)
 - `MAX_FEED_ENTRIES` (default `50`)
+- `LOG_LEVEL` (default `info`) — `debug|info|warn|error`
+
+## Configuration (CLI)
+
+- `--log-level` — `debug|info|warn|error` (overrides `LOG_LEVEL`)
 
 ## Security note
 
