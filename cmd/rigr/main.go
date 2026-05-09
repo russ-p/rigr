@@ -28,6 +28,8 @@ const (
 	defaultLabelPrefix = "rigr."
 	labelReleaseFeed   = "release_feed"
 	labelName          = "name"
+	labelImageVersionRegex = "image_version_regex"
+	labelFeedVersionRegex  = "feed_version_regex"
 )
 
 type Config struct {
@@ -248,11 +250,17 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		_, tag := splitImageTag(imageRef)
 		current := tag
 
+		imageVerReRaw := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelImageVersionRegex])
+		feedVerReRaw := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelFeedVersionRegex])
+		extractors := CompileVersionExtractors(p.Logger, imageVerReRaw, feedVerReRaw)
+		currentMatchVersion := ExtractVersion(extractors.Image, current)
+
 		p.Logger.Debug("checking app",
 			"app", appName,
 			"container_id", c.ID,
 			"image", imageRef,
 			"current_version", current,
+			"match_version", currentMatchVersion,
 			"release_feed", feedURL,
 		)
 
@@ -272,7 +280,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			state.MatchStatus = "no_match"
 		}
 
-		updates, latest, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, current)
+		updates, latest, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, currentMatchVersion, extractors.Feed)
 		state.UpdatesAvailable = updates
 		state.LatestKnownRelease = latest
 		if matchStatus != "" {
@@ -329,7 +337,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	)
 }
 
-func (p *Poller) checkFeed(ctx context.Context, url string, currentVersion string) ([]AppUpdate, *AppUpdate, string, bool, string) {
+func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion string, feedVersionExtractor *regexp.Regexp) ([]AppUpdate, *AppUpdate, string, bool, string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, nil, "no_match", false, err.Error()
@@ -360,19 +368,11 @@ func (p *Poller) checkFeed(ctx context.Context, url string, currentVersion strin
 
 	latest := itemToUpdate(items[0])
 
-	if strings.TrimSpace(currentVersion) == "" {
+	if strings.TrimSpace(currentMatchVersion) == "" {
 		return nil, latest, "no_version", true, ""
 	}
 
-	curNorm := normalizeVersion(currentVersion)
-	matchIdx := -1
-	for i, it := range items {
-		cand := normalizeVersion(extractVersionCandidate(it))
-		if cand != "" && cand == curNorm {
-			matchIdx = i
-			break
-		}
-	}
+	matchIdx := FindMatchingFeedIndex(items, feedVersionExtractor, currentMatchVersion)
 
 	if matchIdx == -1 {
 		// Spec: mark as no_match, report latest_known_release, but do not claim updates.
@@ -565,30 +565,6 @@ func itemToUpdate(it *gofeed.Item) *AppUpdate {
 	}
 	u.PublishedAt = t
 	return u
-}
-
-var semverLike = regexp.MustCompile(`(?i)\bv?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\b`)
-
-func extractVersionCandidate(it *gofeed.Item) string {
-	if it == nil {
-		return ""
-	}
-	if m := semverLike.FindString(it.Title); m != "" {
-		return m
-	}
-	if m := semverLike.FindString(it.Link); m != "" {
-		return m
-	}
-	return it.Title
-}
-
-func normalizeVersion(v string) string {
-	v = strings.TrimSpace(v)
-	v = strings.TrimPrefix(v, "Release ")
-	v = strings.TrimSpace(v)
-	v = strings.TrimPrefix(v, "v")
-	v = strings.TrimSpace(v)
-	return v
 }
 
 func getenv(key, def string) string {

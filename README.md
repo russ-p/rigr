@@ -13,10 +13,30 @@ The label prefix is configurable via `LABEL_PREFIX` (default: `rigr.`).
 
 ## Version matching behavior
 
-`rigr` uses the **image tag** (e.g. `ghcr.io/org/app:v1.2.3` → `v1.2.3`) as the current version and tries to find a matching entry in the feed.
+`rigr` uses the **image tag** as the current version source, but compares by an extracted **match version** (defaults to semver core `X.Y.Z`).
+
+Examples:
+- `ghcr.io/org/app:v1.2.3` → match version `1.2.3`
+- `ghcr.io/actualbudget/actual:26.5.0-alpine` → match version `26.5.0` (variant suffix is ignored by default)
 
 - If a matching entry is found, all entries **newer** (above it in the feed) are returned as `updates_available`.
 - If no matching entry is found, the app is reported with `match_status: "no_match"`, and `latest_known_release` is returned, but `updates_available` stays empty (to avoid false positives).
+
+### Optional labels for version extraction
+
+You can override how versions are extracted using regex labels (useful when tags/titles are not plain semver):
+
+- `rigr.image_version_regex`: regex applied to the **image tag**.
+- `rigr.feed_version_regex`: regex applied to **feed item title/link**.
+
+Rules:
+- If the regex matches and has a capture group 1, that group is used as the version.
+- Otherwise the full match is used.
+- For feed matching, title is tried first; if it doesn't match, link is tried.
+
+Defaults:
+- `rigr.image_version_regex`: `(?i)\\bv?(\\d+\\.\\d+\\.\\d+)\\b`
+- `rigr.feed_version_regex`: `(?i)\\bv?(\\d+\\.\\d+\\.\\d+)\\b`
 
 ## API
 
