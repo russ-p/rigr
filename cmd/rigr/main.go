@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	defaultLabelPrefix = "rigr."
-	labelReleaseFeed   = "release_feed"
-	labelName          = "name"
+	defaultLabelPrefix     = "rigr."
+	labelReleaseFeed       = "release_feed"
+	labelName              = "name"
 	labelImageVersionRegex = "image_version_regex"
 	labelFeedVersionRegex  = "feed_version_regex"
 )
@@ -69,17 +69,19 @@ type AppUpdate struct {
 }
 
 type AppState struct {
-	ContainerID        string      `json:"container_id"`
-	ContainerName      string      `json:"container_name"`
-	Image              string      `json:"image"`
-	CurrentVersion     string      `json:"current_version"`
-	ReleaseFeed        string      `json:"release_feed"`
-	MatchStatus        string      `json:"match_status"` // matched | no_match | no_version
-	UpdatesAvailable   []AppUpdate `json:"updates_available"`
-	LatestKnownRelease *AppUpdate  `json:"latest_known_release,omitempty"`
-	LastCheckedAt      *time.Time  `json:"last_checked_at,omitempty"`
-	LastFeedFetchOK    bool        `json:"last_feed_fetch_ok"`
-	LastError          string      `json:"last_error,omitempty"`
+	ContainerID         string      `json:"container_id"`
+	ContainerName       string      `json:"container_name"`
+	Image               string      `json:"image"`
+	CurrentVersion      string      `json:"current_version"`
+	CurrentMatchVersion string      `json:"current_match_version,omitempty"`
+	ReleaseFeed         string      `json:"release_feed"`
+	MatchStatus         string      `json:"match_status"` // matched | no_match | no_version
+	UpdatesAvailable    []AppUpdate `json:"updates_available"`
+	LatestKnownRelease  *AppUpdate  `json:"latest_known_release,omitempty"`
+	LatestMatchVersion  string      `json:"latest_match_version,omitempty"`
+	LastCheckedAt       *time.Time  `json:"last_checked_at,omitempty"`
+	LastFeedFetchOK     bool        `json:"last_feed_fetch_ok"`
+	LastError           string      `json:"last_error,omitempty"`
 }
 
 type Store struct {
@@ -265,12 +267,13 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		)
 
 		state := AppState{
-			ContainerID:    c.ID,
-			ContainerName:  appName,
-			Image:          imageRef,
-			CurrentVersion: current,
-			ReleaseFeed:    feedURL,
-			MatchStatus:    "no_version",
+			ContainerID:         c.ID,
+			ContainerName:       appName,
+			Image:               imageRef,
+			CurrentVersion:      current,
+			CurrentMatchVersion: currentMatchVersion,
+			ReleaseFeed:         feedURL,
+			MatchStatus:         "no_version",
 		}
 
 		now := time.Now().UTC()
@@ -280,9 +283,10 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			state.MatchStatus = "no_match"
 		}
 
-		updates, latest, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, currentMatchVersion, extractors.Feed)
+		updates, latest, latestMatchVersion, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, currentMatchVersion, extractors.Feed)
 		state.UpdatesAvailable = updates
 		state.LatestKnownRelease = latest
+		state.LatestMatchVersion = latestMatchVersion
 		if matchStatus != "" {
 			state.MatchStatus = matchStatus
 		}
@@ -337,50 +341,51 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	)
 }
 
-func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion string, feedVersionExtractor *regexp.Regexp) ([]AppUpdate, *AppUpdate, string, bool, string) {
+func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion string, feedVersionExtractor *regexp.Regexp) ([]AppUpdate, *AppUpdate, string, string, bool, string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, nil, "no_match", false, err.Error()
+		return nil, nil, "", "no_match", false, err.Error()
 	}
 	req.Header.Set("User-Agent", p.Cfg.UserAgent)
 
 	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
-		return nil, nil, "no_match", false, err.Error()
+		return nil, nil, "", "no_match", false, err.Error()
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nil, "no_match", false, fmt.Sprintf("feed http status: %s", resp.Status)
+		return nil, nil, "", "no_match", false, fmt.Sprintf("feed http status: %s", resp.Status)
 	}
 
 	feed, err := p.FeedParser.Parse(resp.Body)
 	if err != nil {
-		return nil, nil, "no_match", false, err.Error()
+		return nil, nil, "", "no_match", false, err.Error()
 	}
 
 	items := feed.Items
 	if len(items) == 0 {
-		return nil, nil, "no_match", true, ""
+		return nil, nil, "", "no_match", true, ""
 	}
 	if p.Cfg.MaxFeedEntries > 0 && len(items) > p.Cfg.MaxFeedEntries {
 		items = items[:p.Cfg.MaxFeedEntries]
 	}
 
 	latest := itemToUpdate(items[0])
+	latestMatchVersion := ExtractFeedVersion(feedVersionExtractor, items[0])
 
 	if strings.TrimSpace(currentMatchVersion) == "" {
-		return nil, latest, "no_version", true, ""
+		return nil, latest, latestMatchVersion, "no_version", true, ""
 	}
 
 	matchIdx := FindMatchingFeedIndex(items, feedVersionExtractor, currentMatchVersion)
 
 	if matchIdx == -1 {
 		// Spec: mark as no_match, report latest_known_release, but do not claim updates.
-		return nil, latest, "no_match", true, ""
+		return nil, latest, latestMatchVersion, "no_match", true, ""
 	}
 
 	if matchIdx == 0 {
-		return nil, latest, "matched", true, ""
+		return nil, latest, latestMatchVersion, "matched", true, ""
 	}
 
 	updates := make([]AppUpdate, 0, matchIdx)
@@ -391,7 +396,7 @@ func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion 
 		}
 		updates = append(updates, *u)
 	}
-	return updates, latest, "matched", true, ""
+	return updates, latest, latestMatchVersion, "matched", true, ""
 }
 
 func routes(cfg Config, docker *client.Client, store *Store) http.Handler {
@@ -420,6 +425,15 @@ func routes(cfg Config, docker *client.Client, store *Store) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, store.List())
+	})
+
+	mux.HandleFunc("/api/v1/homepage/updates", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		out := BuildHomepageUpdates(store.List())
+		writeJSON(w, http.StatusOK, out)
 	})
 
 	mux.HandleFunc("/api/v1/apps/", func(w http.ResponseWriter, r *http.Request) {

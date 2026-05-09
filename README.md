@@ -43,8 +43,33 @@ Defaults:
 - `GET /health`
 - `GET /api/v1/apps`
 - `GET /api/v1/apps/{container_id}`
+- `GET /api/v1/homepage/updates` (Homepage-friendly JSON)
 - `GET /feed.xml` (RSS)
 - `GET /api/v1/updates.rss` (RSS alias)
+
+### Homepage (gethomepage/homepage) example
+
+This endpoint is designed for the `customapi` **dynamic-list** widget.
+
+- It returns a **root JSON array**.
+- It includes **only apps with confirmed updates** (`updates_available` is non-empty).
+- Items are sorted by newest `published_at` first, then by `container_name`.
+
+Example widget config snippet:
+
+```yaml
+- Updates:
+    icon: si-docker
+    widget:
+      type: customapi
+      url: http://rigr:8080/api/v1/homepage/updates
+      method: GET
+      display: dynamic-list
+      mappings:
+        name: container_name
+        label: version_line
+        target: "{changelog_url}"
+```
 
 ## Configuration (env)
 
