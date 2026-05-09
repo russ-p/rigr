@@ -79,6 +79,9 @@ Example widget config snippet:
 - `HTTP_TIMEOUT` (default `10s`)
 - `USER_AGENT` (default `rigr/0.1 (+https://github.com/)`)
 - `MAX_FEED_ENTRIES` (default `50`)
+- `UPDATE_SEVERITY_ENABLED` (default `false`) — when enabled, classifies update severity from feed item text and:
+  - adds `severity` to `updates_available` items in JSON (`default|breaking_changes|security_fixes`)
+  - prefixes RSS item titles and homepage `version_line` with emoji for non-default severity (`💥` breaking, `🔒` security)
 - `LOG_LEVEL` (default `info`) — `debug|info|warn|error`
 
 ## Configuration (CLI)

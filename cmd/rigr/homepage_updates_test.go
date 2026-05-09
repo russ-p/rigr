@@ -25,7 +25,7 @@ func TestBuildHomepageUpdates_FiltersAndSorts(t *testing.T) {
 			CurrentVersion:      "2.0.0",
 			CurrentMatchVersion: "2.0.0",
 			UpdatesAvailable: []AppUpdate{
-				{Title: "2.1.0", ReleaseNotesURL: "https://example.com/a/2.1.0", PublishedAt: &t2},
+				{Title: "2.1.0", ReleaseNotesURL: "https://example.com/a/2.1.0", PublishedAt: &t2, Severity: UpdateSeverityBreakingChanges},
 			},
 			LatestKnownRelease: &AppUpdate{Title: "2.1.0", ReleaseNotesURL: "https://example.com/a/2.1.0", PublishedAt: &t2},
 			LatestMatchVersion: "2.1.0",
@@ -52,11 +52,14 @@ func TestBuildHomepageUpdates_FiltersAndSorts(t *testing.T) {
 		t.Fatalf("expected second item b-app, got %q", out[1].ContainerName)
 	}
 
-	if out[0].VersionLine != "2.0.0 \u2192 2.1.0" {
+	if out[0].VersionLine != "💥 2.0.0 \u2192 2.1.0" {
 		t.Fatalf("unexpected version_line: %q", out[0].VersionLine)
 	}
 	if out[0].ChangelogURL != "https://example.com/a/2.1.0" {
 		t.Fatalf("unexpected changelog_url: %q", out[0].ChangelogURL)
+	}
+	if out[0].Severity != UpdateSeverityBreakingChanges {
+		t.Fatalf("unexpected severity: %q", out[0].Severity)
 	}
 }
 

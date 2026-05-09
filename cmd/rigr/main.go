@@ -33,22 +33,24 @@ const (
 )
 
 type Config struct {
-	LabelPrefix    string
-	PollInterval   time.Duration
-	HTTPBind       string
-	HTTPTimeout    time.Duration
-	UserAgent      string
-	MaxFeedEntries int
+	LabelPrefix            string
+	PollInterval           time.Duration
+	HTTPBind               string
+	HTTPTimeout            time.Duration
+	UserAgent              string
+	MaxFeedEntries         int
+	UpdateSeverityEnabled  bool
 }
 
 func readConfig() (Config, error) {
 	cfg := Config{
-		LabelPrefix:    getenv("LABEL_PREFIX", defaultLabelPrefix),
-		PollInterval:   getenvDuration("POLL_INTERVAL", 15*time.Minute),
-		HTTPBind:       getenv("HTTP_BIND", "0.0.0.0:8080"),
-		HTTPTimeout:    getenvDuration("HTTP_TIMEOUT", 10*time.Second),
-		UserAgent:      getenv("USER_AGENT", "rigr/0.1 (+https://github.com/)"),
-		MaxFeedEntries: getenvInt("MAX_FEED_ENTRIES", 50),
+		LabelPrefix:           getenv("LABEL_PREFIX", defaultLabelPrefix),
+		PollInterval:          getenvDuration("POLL_INTERVAL", 15*time.Minute),
+		HTTPBind:              getenv("HTTP_BIND", "0.0.0.0:8080"),
+		HTTPTimeout:           getenvDuration("HTTP_TIMEOUT", 10*time.Second),
+		UserAgent:             getenv("USER_AGENT", "rigr/0.1 (+https://github.com/)"),
+		MaxFeedEntries:        getenvInt("MAX_FEED_ENTRIES", 50),
+		UpdateSeverityEnabled: getenvBool("UPDATE_SEVERITY_ENABLED", false),
 	}
 	if cfg.MaxFeedEntries <= 0 {
 		return Config{}, fmt.Errorf("MAX_FEED_ENTRIES must be > 0")
@@ -66,6 +68,7 @@ type AppUpdate struct {
 	Title           string     `json:"title"`
 	ReleaseNotesURL string     `json:"release_notes_url"`
 	PublishedAt     *time.Time `json:"published_at,omitempty"`
+	Severity        UpdateSeverity `json:"severity,omitempty"`
 }
 
 type AppState struct {
@@ -370,7 +373,7 @@ func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion 
 		items = items[:p.Cfg.MaxFeedEntries]
 	}
 
-	latest := itemToUpdate(items[0])
+	latest := itemToUpdate(items[0], p.Cfg.UpdateSeverityEnabled)
 	latestMatchVersion := ExtractFeedVersion(feedVersionExtractor, items[0])
 
 	if strings.TrimSpace(currentMatchVersion) == "" {
@@ -390,7 +393,7 @@ func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion 
 
 	updates := make([]AppUpdate, 0, matchIdx)
 	for _, it := range items[:matchIdx] {
-		u := itemToUpdate(it)
+		u := itemToUpdate(it, p.Cfg.UpdateSeverityEnabled)
 		if u == nil {
 			continue
 		}
@@ -500,6 +503,12 @@ func buildAggregatedRSS(apps []AppState) (string, error) {
 			continue
 		}
 		top := app.UpdatesAvailable[0]
+		sev := UpdateSeverityDefault
+		for _, u := range app.UpdatesAvailable {
+			sev = MaxSeverity(sev, u.Severity)
+		}
+		prefix := SeverityEmoji(sev)
+
 		desc := new(strings.Builder)
 		fmt.Fprintf(desc, "Container: %s\nImage: %s\nCurrent: %s\n\nUpdates:\n", app.ContainerName, app.Image, app.CurrentVersion)
 		for _, u := range app.UpdatesAvailable {
@@ -510,8 +519,13 @@ func buildAggregatedRSS(apps []AppState) (string, error) {
 			}
 		}
 
+		title := fmt.Sprintf("%s: %d update(s) available", app.ContainerName, len(app.UpdatesAvailable))
+		if prefix != "" {
+			title = fmt.Sprintf("%s %s", prefix, title)
+		}
+
 		item := &feeds.Item{
-			Title:       fmt.Sprintf("%s: %d update(s) available", app.ContainerName, len(app.UpdatesAvailable)),
+			Title:       title,
 			Link:        &feeds.Link{Href: top.ReleaseNotesURL},
 			Description: desc.String(),
 			Id:          app.ContainerID,
@@ -558,7 +572,7 @@ func splitImageTag(image string) (name string, tag string) {
 	return image, "latest"
 }
 
-func itemToUpdate(it *gofeed.Item) *AppUpdate {
+func itemToUpdate(it *gofeed.Item, severityEnabled bool) *AppUpdate {
 	if it == nil {
 		return nil
 	}
@@ -568,6 +582,9 @@ func itemToUpdate(it *gofeed.Item) *AppUpdate {
 	}
 	if u.Title == "" {
 		u.Title = "release"
+	}
+	if severityEnabled {
+		u.Severity = ClassifySeverity(feedItemText(it))
 	}
 	var t *time.Time
 	if it.PublishedParsed != nil {
@@ -581,12 +598,44 @@ func itemToUpdate(it *gofeed.Item) *AppUpdate {
 	return u
 }
 
+func feedItemText(it *gofeed.Item) string {
+	if it == nil {
+		return ""
+	}
+	parts := make([]string, 0, 4)
+	if s := strings.TrimSpace(it.Title); s != "" {
+		parts = append(parts, s)
+	}
+	if s := strings.TrimSpace(it.Description); s != "" {
+		parts = append(parts, s)
+	}
+	if s := strings.TrimSpace(it.Content); s != "" {
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func getenv(key, def string) string {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
 		return def
 	}
 	return v
+}
+
+func getenvBool(key string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "t", "yes", "y", "on":
+		return true
+	case "0", "false", "f", "no", "n", "off":
+		return false
+	default:
+		return def
+	}
 }
 
 func getenvInt(key string, def int) int {

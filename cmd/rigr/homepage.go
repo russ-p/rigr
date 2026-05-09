@@ -12,6 +12,7 @@ type HomepageUpdateItem struct {
 	VersionLine   string     `json:"version_line"`
 	ChangelogURL  string     `json:"changelog_url,omitempty"`
 	PublishedAt   *time.Time `json:"published_at,omitempty"`
+	Severity      UpdateSeverity `json:"severity,omitempty"`
 }
 
 // BuildHomepageUpdates returns a Homepage-friendly list of update items.
@@ -57,12 +58,21 @@ func BuildHomepageUpdates(apps []AppState) []HomepageUpdateItem {
 			newest = "release"
 		}
 
+		sev := UpdateSeverityDefault
+		for _, u := range app.UpdatesAvailable {
+			sev = MaxSeverity(sev, u.Severity)
+		}
+
 		versionLine := fmt.Sprintf("%s \u2192 %s", cur, newest)
+		if prefix := SeverityEmoji(sev); prefix != "" {
+			versionLine = fmt.Sprintf("%s %s", prefix, versionLine)
+		}
 		item := HomepageUpdateItem{
 			ContainerName: app.ContainerName,
 			VersionLine:   versionLine,
 			ChangelogURL:  strings.TrimSpace(latest.ReleaseNotesURL),
 			PublishedAt:   latest.PublishedAt,
+			Severity:      sev,
 		}
 		out = append(out, item)
 	}
