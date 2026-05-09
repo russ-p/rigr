@@ -10,6 +10,41 @@
 - JSON + RSS endpoints for update reporting
 - Integration with [gethomepage/homepage](https://github.com/gethomepage/homepage/) via a Homepage-friendly endpoint (`/api/v1/homepage/updates`)
 
+## Quick start (Docker Compose)
+
+Create `docker-compose.yml`:
+
+```yaml
+services:
+  rigr:
+    image: ghcr.io/russ-p/rigr:latest # replace `latest` with a pinned version for production
+    container_name: rigr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - POLL_INTERVAL=15m # how often to poll release feeds
+      - HTTP_BIND=0.0.0.0:8080 # HTTP listen address
+      - HTTP_TIMEOUT=10s # outbound HTTP timeout (feeds)
+      - LABEL_PREFIX=rigr. # Docker label prefix used for config discovery
+      - MAX_FEED_ENTRIES=50 # limit fetched feed entries per app
+      - LOG_LEVEL=info # debug|info|warn|error
+      - UPDATE_SEVERITY_ENABLED=true # enable severity classification from release notes
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+Run:
+
+```bash
+docker compose up -d
+```
+
+Then check:
+
+- `GET http://localhost:8080/health`
+- `GET http://localhost:8080/api/v1/apps`
+
 ## How it discovers apps
 
 Only containers with the required label are tracked.
