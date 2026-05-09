@@ -2,6 +2,14 @@
 
 `rigr` is a small homelab service that inspects **running Docker containers**, reads their labels, fetches **RSS/Atom release feeds**, and reports **available updates** via HTTP API in **JSON** and **RSS** formats.
 
+![Homepage integration screenshot](assets/homepage.png)
+
+## Features
+
+- Docker label-based app discovery
+- JSON + RSS endpoints for update reporting
+- Integration with [gethomepage/homepage](https://github.com/gethomepage/homepage/) via a Homepage-friendly endpoint (`/api/v1/homepage/updates`)
+
 ## How it discovers apps
 
 Only containers with the required label are tracked.
