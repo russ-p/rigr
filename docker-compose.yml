@@ -1,0 +1,16 @@
+services:
+  rigr:
+    build: .
+    container_name: rigr
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - POLL_INTERVAL=15m
+      - HTTP_BIND=0.0.0.0:8080
+      - HTTP_TIMEOUT=10s
+      - LABEL_PREFIX=rigr.
+      - MAX_FEED_ENTRIES=50
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
