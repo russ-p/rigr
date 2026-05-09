@@ -48,7 +48,7 @@ func readConfig() (Config, error) {
 		PollInterval:          getenvDuration("POLL_INTERVAL", 15*time.Minute),
 		HTTPBind:              getenv("HTTP_BIND", "0.0.0.0:8080"),
 		HTTPTimeout:           getenvDuration("HTTP_TIMEOUT", 10*time.Second),
-		UserAgent:             getenv("USER_AGENT", "rigr/0.1 (+https://github.com/)"),
+		UserAgent:             getenv("USER_AGENT", "rigr/0.1.0 (+https://github.com/)"),
 		MaxFeedEntries:        getenvInt("MAX_FEED_ENTRIES", 50),
 		UpdateSeverityEnabled: getenvBool("UPDATE_SEVERITY_ENABLED", false),
 	}
