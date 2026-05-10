@@ -98,10 +98,16 @@ func NewStore() *Store {
 	}
 }
 
-func (s *Store) Set(app AppState) {
+// ReplaceAll swaps in the snapshot from the latest successful Docker poll.
+// Containers recreated after an image update get a new ID; replacing the map
+// drops stale entries that would otherwise keep serving old state via the API.
+func (s *Store) ReplaceAll(next map[string]AppState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.apps[app.ContainerID] = app
+	s.apps = make(map[string]AppState, len(next))
+	for id, app := range next {
+		s.apps[id] = app
+	}
 }
 
 func (s *Store) List() []AppState {
@@ -238,6 +244,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 		matchedNoUpd int
 	}
 	var sum pollSummary
+	next := make(map[string]AppState)
 
 	for _, c := range containers {
 		feedURL := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelReleaseFeed])
@@ -330,8 +337,10 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			)
 		}
 
-		p.Store.Set(state)
+		next[state.ContainerID] = state
 	}
+
+	p.Store.ReplaceAll(next)
 
 	p.Logger.Info("poll summary",
 		"tracked", sum.tracked,
