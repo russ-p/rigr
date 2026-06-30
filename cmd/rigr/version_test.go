@@ -58,3 +58,54 @@ func TestExtractFeedVersion_FallsBackToLink(t *testing.T) {
 	}
 }
 
+func TestShouldSkipFeedItem_DefaultPreReleaseSuffixes(t *testing.T) {
+	skipRe := regexp.MustCompile(defaultSkipVersionRegex)
+	cases := []struct {
+		title string
+		link  string
+		want  bool
+	}{
+		{title: "v1.2.3-dev", want: true},
+		{title: "v1.2.3-rc", want: true},
+		{title: "v1.2.3-rc1", want: true},
+		{title: "2026.7.0b2", want: true},
+		{title: "v1.2.3", want: false},
+		{link: "https://example/releases/v2.0.0-rc2", want: true},
+	}
+	for _, tc := range cases {
+		got := ShouldSkipFeedItem(skipRe, &gofeed.Item{Title: tc.title, Link: tc.link})
+		if got != tc.want {
+			t.Fatalf("title=%q link=%q: expected skip=%v, got %v", tc.title, tc.link, tc.want, got)
+		}
+	}
+}
+
+func TestFilterSkippedFeedItems_ExcludesPreReleasesFromMatching(t *testing.T) {
+	feedRe := regexp.MustCompile(defaultFeedVersionRegex)
+	skipRe := regexp.MustCompile(defaultSkipVersionRegex)
+	items := []*gofeed.Item{
+		{Title: "v1.2.3-rc1", Link: "https://example/releases/v1.2.3-rc1"},
+		{Title: "v1.2.3", Link: "https://example/releases/v1.2.3"},
+		{Title: "v1.2.0", Link: "https://example/releases/v1.2.0"},
+	}
+
+	filtered := FilterSkippedFeedItems(items, skipRe)
+	if len(filtered) != 2 {
+		t.Fatalf("expected 2 items after filter, got %d", len(filtered))
+	}
+	if filtered[0].Title != "v1.2.3" {
+		t.Fatalf("expected latest stable %q, got %q", "v1.2.3", filtered[0].Title)
+	}
+
+	idx := FindMatchingFeedIndex(filtered, feedRe, "1.2.0")
+	if idx != 1 {
+		t.Fatalf("expected idx %d, got %d", 1, idx)
+	}
+}
+
+func TestCompileSkipVersionRegex_DisableSentinel(t *testing.T) {
+	if got := CompileSkipVersionRegex(nil, "-"); got != nil {
+		t.Fatalf("expected nil regex for disable sentinel, got %#v", got)
+	}
+}
+

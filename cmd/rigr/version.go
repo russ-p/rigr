@@ -14,6 +14,8 @@ import (
 const (
 	defaultImageVersionRegex = `(?i)\bv?(\d+\.\d+\.\d+)\b`
 	defaultFeedVersionRegex  = `(?i)\bv?(\d+\.\d+\.\d+)\b`
+	// Matches pre-release suffixes like -dev, -rc, -rc1, 2026.7.0b2 on feed titles/links.
+	defaultSkipVersionRegex = `(?i)(?:[-.]?(?:dev|rc\d*)|b\d+)$`
 )
 
 type VersionExtractors struct {
@@ -25,6 +27,30 @@ func CompileVersionExtractors(logger *slog.Logger, imageRegex, feedRegex string)
 	img := compileExtractor(logger, "image_version_regex", imageRegex, defaultImageVersionRegex)
 	fd := compileExtractor(logger, "feed_version_regex", feedRegex, defaultFeedVersionRegex)
 	return VersionExtractors{Image: img, Feed: fd}
+}
+
+// CompileSkipVersionRegex returns a regex for feed items that should be ignored.
+// Empty pattern uses defaultSkipVersionRegex. Set pattern to "-", "off", or "none" to disable.
+func CompileSkipVersionRegex(logger *slog.Logger, pattern string) *regexp.Regexp {
+	pattern = strings.TrimSpace(pattern)
+	switch strings.ToLower(pattern) {
+	case "", defaultSkipVersionRegex:
+		pattern = defaultSkipVersionRegex
+	case "-", "off", "none":
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("invalid skip version regex; using default",
+				"label", "skip_version_regex",
+				"pattern", pattern,
+				"err", err,
+			)
+		}
+		return regexp.MustCompile(defaultSkipVersionRegex)
+	}
+	return re
 }
 
 func compileExtractor(logger *slog.Logger, labelName, pattern, fallback string) *regexp.Regexp {
@@ -95,6 +121,32 @@ func ExtractVersionMatch(re *regexp.Regexp, s string) string {
 		return NormalizeVersion(m[1])
 	}
 	return NormalizeVersion(m[0])
+}
+
+func ShouldSkipFeedItem(skipRe *regexp.Regexp, it *gofeed.Item) bool {
+	if skipRe == nil || it == nil {
+		return false
+	}
+	if s := strings.TrimSpace(it.Title); s != "" && skipRe.MatchString(s) {
+		return true
+	}
+	if s := strings.TrimSpace(it.Link); s != "" && skipRe.MatchString(s) {
+		return true
+	}
+	return false
+}
+
+func FilterSkippedFeedItems(items []*gofeed.Item, skipRe *regexp.Regexp) []*gofeed.Item {
+	if skipRe == nil || len(items) == 0 {
+		return items
+	}
+	out := make([]*gofeed.Item, 0, len(items))
+	for _, it := range items {
+		if !ShouldSkipFeedItem(skipRe, it) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 func ExtractFeedVersion(feedRe *regexp.Regexp, it *gofeed.Item) string {

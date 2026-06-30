@@ -30,6 +30,7 @@ const (
 	labelName              = "name"
 	labelImageVersionRegex = "image_version_regex"
 	labelFeedVersionRegex  = "feed_version_regex"
+	labelSkipVersionRegex  = "skip_version_regex"
 )
 
 type Config struct {
@@ -264,7 +265,9 @@ func (p *Poller) pollOnce(ctx context.Context) {
 
 		imageVerReRaw := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelImageVersionRegex])
 		feedVerReRaw := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelFeedVersionRegex])
+		skipVerReRaw := strings.TrimSpace(c.Labels[p.Cfg.LabelPrefix+labelSkipVersionRegex])
 		extractors := CompileVersionExtractors(p.Logger, imageVerReRaw, feedVerReRaw)
+		skipVersionRe := CompileSkipVersionRegex(p.Logger, skipVerReRaw)
 		currentMatchVersion := ExtractVersion(extractors.Image, current)
 
 		p.Logger.Debug("checking app",
@@ -293,7 +296,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 			state.MatchStatus = "no_match"
 		}
 
-		updates, latest, latestMatchVersion, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, currentMatchVersion, extractors.Feed)
+		updates, latest, latestMatchVersion, matchStatus, fetchOK, lastErr := p.checkFeed(ctx, feedURL, currentMatchVersion, extractors.Feed, skipVersionRe)
 		state.UpdatesAvailable = updates
 		state.LatestKnownRelease = latest
 		state.LatestMatchVersion = latestMatchVersion
@@ -353,7 +356,7 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	)
 }
 
-func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion string, feedVersionExtractor *regexp.Regexp) ([]AppUpdate, *AppUpdate, string, string, bool, string) {
+func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion string, feedVersionExtractor, skipVersionRe *regexp.Regexp) ([]AppUpdate, *AppUpdate, string, string, bool, string) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, nil, "", "no_match", false, err.Error()
@@ -380,6 +383,10 @@ func (p *Poller) checkFeed(ctx context.Context, url string, currentMatchVersion 
 	}
 	if p.Cfg.MaxFeedEntries > 0 && len(items) > p.Cfg.MaxFeedEntries {
 		items = items[:p.Cfg.MaxFeedEntries]
+	}
+	items = FilterSkippedFeedItems(items, skipVersionRe)
+	if len(items) == 0 {
+		return nil, nil, "", "no_match", true, ""
 	}
 
 	latest := itemToUpdate(items[0], p.Cfg.UpdateSeverityEnabled)

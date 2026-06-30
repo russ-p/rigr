@@ -81,6 +81,16 @@ Defaults:
 - `rigr.image_version_regex`: `(?i)\\bv?(\\d+\\.\\d+\\.\\d+)\\b`
 - `rigr.feed_version_regex`: `(?i)\\bv?(\\d+\\.\\d+\\.\\d+)\\b`
 
+### Skipping pre-release feed entries
+
+Feed items whose **title or link** match `rigr.skip_version_regex` are ignored when determining `latest_known_release`, `latest_match_version`, and `updates_available`. This keeps dev/rc pre-releases from being reported as available updates.
+
+- `rigr.skip_version_regex`: regex applied to **feed item title/link**.
+- Set to `-`, `off`, or `none` to disable filtering.
+
+Default:
+- `rigr.skip_version_regex`: `(?i)(?:[-.]?(?:dev|rc\\d*)|b\\d+)$` — skips suffixes like `-dev`, `-rc`, `-rc1`, `2026.7.0b2`.
+
 ## API
 
 - `GET /health`
