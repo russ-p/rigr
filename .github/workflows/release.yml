@@ -17,10 +17,6 @@ jobs:
         with:
           generate_release_notes: true
           body: |
-            ## rigr ${{ github.ref_name }}
-
-            First tagged release.
-
             - Run with Docker Compose using the image `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
             - See `README.md` for configuration and endpoints
 
