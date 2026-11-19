@@ -16,6 +16,10 @@ const (
 	defaultFeedVersionRegex  = `(?i)\bv?(\d+\.\d+\.\d+)\b`
 	// Matches pre-release suffixes like -dev, -rc, -rc1, 2026.7.0b2 on feed titles/links.
 	defaultSkipVersionRegex = `(?i)(?:[-.]?(?:dev|rc\d*)|b\d+)$`
+	// Marks release titles as pre-releases (v2.1.5-beta, 3.6.7-next, 1.0-rc1,
+	// 2026.7.0b2, 1.0.0-alpha.1). Used only for the `prerelease` flag and
+	// `recommended` selection, not for feed filtering.
+	defaultPrereleaseRegex = `(?i)(?:alpha|beta|rc\d*|next|dev|snap(?:shot)?|pre(?:view|release)?)|b\d+(?:$|[-._])`
 )
 
 type VersionExtractors struct {
@@ -49,6 +53,28 @@ func CompileSkipVersionRegex(logger *slog.Logger, pattern string) *regexp.Regexp
 			)
 		}
 		return regexp.MustCompile(defaultSkipVersionRegex)
+	}
+	return re
+}
+
+// CompilePrereleaseRegex returns a regex used to mark releases as pre-releases
+// by their exact title. Empty pattern uses defaultPrereleaseRegex. Invalid
+// patterns fall back to the default (with a warning when a logger is given).
+func CompilePrereleaseRegex(logger *slog.Logger, pattern string) *regexp.Regexp {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		pattern = defaultPrereleaseRegex
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("invalid prerelease regex; using default",
+				"env", "PRERELEASE_REGEX",
+				"pattern", pattern,
+				"err", err,
+			)
+		}
+		return regexp.MustCompile(defaultPrereleaseRegex)
 	}
 	return re
 }

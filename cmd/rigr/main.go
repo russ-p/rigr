@@ -34,13 +34,14 @@ const (
 )
 
 type Config struct {
-	LabelPrefix            string
-	PollInterval           time.Duration
-	HTTPBind               string
-	HTTPTimeout            time.Duration
-	UserAgent              string
-	MaxFeedEntries         int
-	UpdateSeverityEnabled  bool
+	LabelPrefix           string
+	PollInterval          time.Duration
+	HTTPBind              string
+	HTTPTimeout           time.Duration
+	UserAgent             string
+	MaxFeedEntries        int
+	UpdateSeverityEnabled bool
+	PrereleaseRegex       string
 }
 
 func readConfig() (Config, error) {
@@ -52,6 +53,7 @@ func readConfig() (Config, error) {
 		UserAgent:             getenv("USER_AGENT", "rigr/0.1.0 (+https://github.com/)"),
 		MaxFeedEntries:        getenvInt("MAX_FEED_ENTRIES", 50),
 		UpdateSeverityEnabled: getenvBool("UPDATE_SEVERITY_ENABLED", false),
+		PrereleaseRegex:       getenv("PRERELEASE_REGEX", defaultPrereleaseRegex),
 	}
 	if cfg.MaxFeedEntries <= 0 {
 		return Config{}, fmt.Errorf("MAX_FEED_ENTRIES must be > 0")
@@ -452,6 +454,24 @@ func routes(cfg Config, docker *client.Client, store *Store) http.Handler {
 			return
 		}
 		out := BuildHomepageUpdates(store.List())
+		writeJSON(w, http.StatusOK, out)
+	})
+
+	prereleaseRe := CompilePrereleaseRegex(slog.Default(), cfg.PrereleaseRegex)
+	feedVersionRe := regexp.MustCompile(defaultFeedVersionRegex)
+
+	mux.HandleFunc("/api/v1/updates", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		q := r.URL.Query()
+		out := BuildUpdates(store.List(), UpdatesOptions{
+			Container:       strings.TrimSpace(q.Get("container")),
+			IncludeUpToDate: parseBoolParam(q.Get("include_up_to_date")),
+			PrereleaseRe:    prereleaseRe,
+			FeedVersionRe:   feedVersionRe,
+		})
 		writeJSON(w, http.StatusOK, out)
 	})
 

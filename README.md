@@ -96,9 +96,105 @@ Default:
 - `GET /health`
 - `GET /api/v1/apps`
 - `GET /api/v1/apps/{container_id}`
+- `GET /api/v1/updates` (machine-oriented JSON for scripts/agents)
 - `GET /api/v1/homepage/updates` (Homepage-friendly JSON)
 - `GET /feed.xml` (RSS)
 - `GET /api/v1/updates.rss` (RSS alias)
+
+### Machine-oriented updates example
+
+`GET /api/v1/updates` is intended for programmatic consumers (CLI scripts,
+agents that upgrade image tags). Unlike the Homepage endpoint it exposes the
+**exact release titles** (including `v`-prefix and variant suffixes), the exact
+running **image tag**, the **full list** of pending updates, and a
+**prerelease** flag per release.
+
+- Returns a **root JSON array**.
+- Includes only apps with pending updates by default; apps with an empty
+  `updates_available` are added with `?include_up_to_date=true`.
+- `?container=<name>` filters to a single container by exact name.
+- Items are sorted by newest pending release `published_at` first (missing
+  timestamps last), then by `container_name`.
+- `recommended` is the newest **non**-pre-release pending update — the release an
+  agent should upgrade to. It is `null` when only pre-releases are pending;
+  consumers should ask a human instead of upgrading automatically.
+- `prerelease` marks entries whose release title matches `PRERELEASE_REGEX`.
+  This is classification only: the `skip_version_regex` feed filter is not
+  affected.
+- App-level `severity` is the max severity across `updates_available`.
+
+Example response (trimmed to two apps):
+
+```json
+[
+  {
+    "container_name": "gitea",
+    "container_id": "abc123",
+    "image": "docker.gitea.com/gitea:28.3.0",
+    "current_tag": "28.3.0",
+    "current_match_version": "28.3.0",
+    "release_feed": "https://github.com/go-gitea/gitea/releases.atom",
+    "match_status": "matched",
+    "severity": "security_fixes",
+    "last_checked_at": "2026-11-19T18:30:00Z",
+    "recommended": {
+      "title": "v28.4.0",
+      "match_version": "28.4.0",
+      "release_notes_url": "https://github.com/go-gitea/gitea/releases/tag/v28.4.0",
+      "published_at": "2026-11-15T19:39:47Z",
+      "severity": "security_fixes",
+      "prerelease": false
+    },
+    "updates_available": [
+      {
+        "title": "v28.4.0",
+        "match_version": "28.4.0",
+        "release_notes_url": "https://github.com/go-gitea/gitea/releases/tag/v28.4.0",
+        "published_at": "2026-11-15T19:39:47Z",
+        "severity": "security_fixes",
+        "prerelease": false
+      }
+    ]
+  },
+  {
+    "container_name": "filebrowser-quantum",
+    "container_id": "def456",
+    "image": "ghcr.io/gtsteffaniak/filebrowser:2.0.2-stable-slim",
+    "current_tag": "2.0.2-stable-slim",
+    "current_match_version": "2.0.2",
+    "release_feed": "https://github.com/gtsteffaniak/filebrowser/releases.atom",
+    "match_status": "matched",
+    "severity": "security_fixes",
+    "last_checked_at": "2026-11-19T18:30:00Z",
+    "recommended": null,
+    "updates_available": [
+      {
+        "title": "v2.1.5-beta",
+        "match_version": "2.1.5",
+        "release_notes_url": "https://github.com/gtsteffaniak/filebrowser/releases/tag/v2.1.5-beta",
+        "published_at": "2026-11-14T00:44:01Z",
+        "severity": "security_fixes",
+        "prerelease": true
+      },
+      {
+        "title": "v2.1.4-beta",
+        "match_version": "2.1.4",
+        "release_notes_url": "https://github.com/gtsteffaniak/filebrowser/releases/tag/v2.1.4-beta",
+        "published_at": "2026-10-31T13:37:41Z",
+        "severity": "default",
+        "prerelease": true
+      }
+    ]
+  }
+]
+```
+
+Query parameters:
+
+- `container` — exact container name; only that app is returned (empty array
+  when there is no match).
+- `include_up_to_date` — `true`/`1`/`yes`/`on` add apps without pending updates
+  (with an empty `updates_available` array).
 
 ### Homepage (gethomepage/homepage) example
 
@@ -135,6 +231,7 @@ Example widget config snippet:
 - `UPDATE_SEVERITY_ENABLED` (default `false`) — when enabled, classifies update severity from feed item text and:
   - adds `severity` to `updates_available` items in JSON (`default|breaking_changes|security_fixes`)
   - prefixes RSS item titles and homepage `version_line` with emoji for non-default severity (`💥` breaking, `🔒` security)
+- `PRERELEASE_REGEX` (default `(?i)(?:alpha|beta|rc\d*|next|dev|snap(?:shot)?|pre(?:view|release)?)|b\d+(?:$|[-._])`) — marks release titles as pre-releases for `/api/v1/updates` (`prerelease` flag and `recommended` selection). Classification only: it does not filter feeds (`skip_version_regex` is unaffected).
 - `LOG_LEVEL` (default `info`) — `debug|info|warn|error`
 
 ## Configuration (CLI)
